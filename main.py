@@ -23,9 +23,10 @@ with st.sidebar:
         if st.button("Logout"):
             st.session_state.user = None
             st.rerun()
-    else:
-        st.page_link("main.py", label="Home")
-        st.page_link("pages/6_Settings.py", label="About")
+    #else:
+    
+    #   st.page_link("main.py", label="Home")
+    # st.page_link("pages/6_Settings.py", label="About")
 
 # Main page routing
 if not st.session_state.user:
