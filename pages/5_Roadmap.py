@@ -116,6 +116,8 @@ floating_chat_button = """
 """
 st.markdown(floating_chat_button, unsafe_allow_html=True)
 COHERE_API_KEY="omwW07xRZRqPrIxSfx7FxYoaMQCB3cstWGXHYu0v"
+st.write("## Compliance Chatbot 🤖")
+st.write("### How can I help You?")
 
 
 if "user" not in st.session_state or not st.session_state.user:
@@ -133,8 +135,8 @@ else:
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-st.write("## Compliance Chatbot 🤖")
-st.write("### How can I help You?")
+
+
 user_input = st.chat_input("Ask me about compliance...")
 
 if user_input:
@@ -161,3 +163,47 @@ if user_input:
         for msg in st.session_state.chat_history:
             role = "👤 You" if msg["role"] == "user" else "🤖 Bot"
             st.write(f"**{role}:** {msg['content']}")
+
+
+
+import streamlit as st
+from together import Together
+
+# Initialize Together API client
+client = Together(api_key="tgp_v1_wR2Ipu5B-6jXNfljNiZavXeRksEir41Jp-3-vQK075E")  # Get a free API key from https://www.together.xyz/
+
+# Function to read the final report file
+def read_final_report(file_path):
+    with open(file_path, "r", encoding="utf-8") as file:
+        return file.read()
+
+# Function to generate checklist using Together AI
+def generate_checklist(report_text):
+    response = client.chat.completions.create(
+        model="meta-llama/Llama-3.3-70B-Instruct-Turbo",  # Free model
+        messages=[{"role": "user", "content": f"Generate a compliance checklist from this report:\n\n{report_text}"}]
+    )
+    return response.choices[0].message.content
+
+# Streamlit UI
+st.title("Compliance Checklist Generator")
+
+# File Upload
+uploaded_file = st.file_uploader("Upload Final Report (TXT file)", type=["txt"])
+
+if uploaded_file is not None:
+    # Read file content
+    report_text = uploaded_file.read().decode("utf-8")
+
+    # Generate checklist
+    if st.button("Generate Checklist"):
+        checklist = generate_checklist(report_text)
+        st.subheader("Generated Checklist:")
+        st.write(checklist)
+
+
+
+
+
+#tgp_v1_wR2Ipu5B-6jXNfljNiZavXeRksEir41Jp-3-vQK075E
+#6c9631e062a1e28df31f448a90a7ca446be81b671de82c1f89943edd8c62e12f
