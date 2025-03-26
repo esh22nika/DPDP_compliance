@@ -31,10 +31,12 @@ else:
                #      st.switch_page("pages/7_Privacy_Check.py")
                 
                 if st.button("Run Security Scan"):
+                    st.session_state['policy_url'] = url
                     st.switch_page("pages/3_Security_Scan.py")
             else:
                 run_privacy_check(url)
                 if st.button("Run Security Scan"):
+                    st.session_state['policy_url'] = url
                     st.switch_page("pages/3_Security_Scan.py")
                       
 

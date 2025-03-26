@@ -239,6 +239,7 @@ def generate_policy_page():
         st.switch_page("pages/3_Security_Scan.py")
     if st.button("Go back to dashboard"):
         st.switch_page("pages/1_Dashboard.py")
+        
 
 if __name__ == "__main__":
     generate_policy_page()
