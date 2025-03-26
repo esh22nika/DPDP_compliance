@@ -239,8 +239,7 @@ def main(url):
         2. We'll locate your privacy policy
         3. Our tool will analyze the policy against 10 required and 5 recommended clauses
         4. Get a detailed report of compliance status and recommendations
-        
-        **Important:** This tool provides guidance only and is not a legal substitute for professional advice.
+       
         """)
     
     col1, col2 = st.columns([3, 1])
@@ -254,7 +253,7 @@ def main(url):
         check_button = st.button("Check Compliance", type="primary", use_container_width=True)
     
     if not url and check_button:
-        st.warning("⚠️ Please enter a valid URL to check")
+        st.warning("Please enter a valid URL to check")
         return
         
     if url and check_button:
@@ -263,35 +262,12 @@ def main(url):
             url = 'https://' + url
         
         if not validators.url(url):
-            st.error("🚨 Invalid URL format. Please enter a valid website URL.")
+            st.error("Invalid URL format. Please enter a valid website URL.")
             return
         
         with st.spinner("Looking for privacy policy..."):
             # Find privacy policy URL
             policy_url, response = find_privacy_policy_url(url)
-            
-            if not policy_url or not response:
-                st.error("🚨 Couldn't find a privacy policy on your website.")
-                
-                with st.expander("Need a privacy policy template?"):
-                    st.markdown("""
-                    We can help you create a basic privacy policy template.
-                    
-                    **Note:** This template should be reviewed by a legal professional before use.
-                    """)
-                    
-                    business_name = st.text_input("Business Name:")
-                    website_url = st.text_input("Website URL:", value=url)
-                    contact_email = st.text_input("Contact Email:")
-                    
-                    if st.button("Generate Template"):
-                        # Template generation logic would go here
-                        st.text_area("📄 Privacy Policy Template", 
-                                    f"PRIVACY POLICY FOR {business_name.upper() if business_name else 'YOUR BUSINESS'}\n\n"
-                                    f"Last Updated: {time.strftime('%B %d, %Y')}\n\n"
-                                    "This Privacy Policy describes how we collect, use, and handle your personal information...",
-                                    height=300)
-                return
             
             # Get the privacy policy content
             with st.spinner("Analyzing content..."):
@@ -367,11 +343,11 @@ def main(url):
                 st.plotly_chart(fig)
                 
                 # Detailed results
-                tabs = st.tabs(["📋 Required Clauses", "🔍 Recommendations", "📤 Export"])
+                tabs = st.tabs(["Required Clauses", "Recommendations", "Export"])
                 
                 with tabs[0]:
                     for result in results:
-                        with st.expander(f"{'✅' if result['Status'] == 'Present' else '❌'} {result['Clause']}"):
+                        with st.expander(f"{'' if result['Status'] == 'Present' else '❌'} {result['Clause']}"):
                             st.write(f"**Status:** {result['Status']}")
                             if result['Status'] == 'Present':
                                 st.success(f"Evidence: {result['Evidence']}")
