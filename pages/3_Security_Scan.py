@@ -19,7 +19,7 @@ url = st.session_state.get('policy_url')
 
 # API Keys (replace with actual API keys)
 SHODAN_API_KEY = st.secrets.get('SHODAN_API_KEY', '')
-genai.configure(api_key="YOUR_GEMINI_API_KEY")
+genai.configure(api_key="AIzaSyDZjor43yqVq4bWRThkg-EraIh6vmlCw6s")
 HAVEIBEENPWNED_API_KEY = st.secrets.get('HAVEIBEENPWNED_API_KEY', '')
 BREACH_DIRECTORY_API_KEY='7d93764f6bmsh81095bf18419627p1fc415jsnf6df534c0add'
 GOOGLE_DLP_API_KEY = st.secrets.get('GOOGLE_DLP_API_KEY', '')
@@ -258,7 +258,7 @@ class SecurityScanner:
         return min(max(normalized_score, 0), 10)
     
     def generate_remediation_steps(self):
-        """Generate unique remediation steps based on vulnerabilities"""
+        """Generate remediation steps based on vulnerabilities"""
         steps = []
         
         # Port exposure remediation
@@ -274,7 +274,15 @@ class SecurityScanner:
         if headers.get('Strict-Transport-Security') == 'Not Set':
             steps.append("Enable HTTP Strict Transport Security (HSTS)")
         
-        return steps
+        if headers.get('X-Frame-Options') == 'Not Set':
+            steps.append("Implement X-Frame-Options to prevent clickjacking")
+        
+        if headers.get('Referrer-Policy') == 'Not Set':
+            steps.append("Configure Referrer-Policy to control referrer information")
+        
+        return steps if steps else ["No critical remediation steps identified"]
+    
+    
 def generate_pdf_report(scanner):
     """Generate a PDF report with security scan results"""
     pdf_filename = "Security_Scan_Report.pdf"
@@ -338,6 +346,56 @@ def generate_pdf_report(scanner):
     c.save()
     return pdf_filename
 
+
+def get_dpdp_compliance_assessment(security_score, scan_results):
+    """Get DPDP compliance assessment using Gemini API"""
+    try:
+        # Prepare prompt for Gemini
+        prompt = f"""
+        Based on these security scan results, provide a very concise (1 sentence) assessment 
+        of DPDP (India's Digital Personal Data Protection Act) compliance readiness:
+        
+        Security Score: {security_score}/10
+        Critical Ports Exposed: {len(scan_results.get('port_scan', {}).get('critical_ports_exposed', []))}
+        Security Headers: {scan_results.get('security_headers', {})}
+        SSL Valid: {'Yes' if scan_results.get('domain_metadata', {}).get('ssl_expiry') else 'No'}
+        
+        Respond with just one sentence about DPDP compliance readiness, nothing else.
+        """
+        
+        # Initialize Gemini model (using 1.5 flash)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        
+        return response.text.strip()
+    
+    except Exception as e:
+        st.error(f"Could not generate DPDP assessment: {e}")
+        return "DPDP compliance assessment unavailable"
+
+def display_compliance_progress(percentage):
+    """Display a horizontal progress bar for compliance percentage"""
+    st.write(f"DPDP Compliance Readiness: {percentage}%")
+    st.progress(percentage / 100)
+    st.markdown("""
+    <style>
+        .stProgress > div > div > div {
+            background-color: #4CAF50;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+def calculate_compliance_percentage(security_score):
+    """Calculate DPDP compliance percentage based on security score"""
+    # Simple linear mapping - adjust as needed
+    base_percentage = security_score * 8  # 0-10 score becomes 0-80%
+    
+    # Add bonus points for specific compliance indicators
+    bonus = 0
+    
+    # Max out at 95% since 100% is unrealistic
+    return min(base_percentage + bonus, 95)
+
 def run_security_scan():
     st.set_page_config(page_title="Run security scan")
     st.title("Run Security Scan")
@@ -391,6 +449,20 @@ def run_security_scan():
             security_score = scanner.calculate_security_score()
             st.subheader("Security Score")
             st.metric("Comprehensive Security Rating", f"{security_score}/10")
+
+           
+            compliance_percentage = calculate_compliance_percentage(security_score)
+            st.subheader("DPDP Compliance Assessment")
+            
+            # Display progress bar
+            display_compliance_progress(compliance_percentage)
+            
+            # Get Gemini's assessment
+            dpdp_assessment = get_dpdp_compliance_assessment(
+                security_score, 
+                scanner.scan_results
+            )
+            st.info(f"🔍 {dpdp_assessment}") 
             if security_score<4:
                 st.subheader("Your website is not reliable")
             elif (security_score<=8)and(security_score>=5):
