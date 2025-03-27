@@ -13,12 +13,13 @@ from urllib.parse import urlparse
 import json
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+import google.generativeai as genai
 
 url = st.session_state.get('policy_url')
 
 # API Keys (replace with actual API keys)
 SHODAN_API_KEY = st.secrets.get('SHODAN_API_KEY', '')
-#SHODAN_API_KEY= 'uxZ9N5aq0j3s5S3BIouIL7lYZpdaz6qn'
+genai.configure(api_key="YOUR_GEMINI_API_KEY")
 HAVEIBEENPWNED_API_KEY = st.secrets.get('HAVEIBEENPWNED_API_KEY', '')
 BREACH_DIRECTORY_API_KEY='7d93764f6bmsh81095bf18419627p1fc415jsnf6df534c0add'
 GOOGLE_DLP_API_KEY = st.secrets.get('GOOGLE_DLP_API_KEY', '')
@@ -238,11 +239,10 @@ class SecurityScanner:
         """Calculate comprehensive security score"""
         # Weights for different security aspects
         weights = {
-            'port_exposure': 0.25,
-            'security_headers': 0.2,
-            'domain_metadata': 0.15,
-            #'email_leaks': 0.2,
-            'sensitive_data': 0.2
+            'port_exposure': 0.3,      # Penalize critical open ports, but common web ports (80, 443) shouldn't be major issues
+            'security_headers': 0.3,  # Reward good headers, but missing headers shouldn't tank the score completely
+            'domain_metadata': 0.2,    # Increase importance for SSL expiry and domain trustworthiness
+            'sensitive_data': 0.4 
         }
         
         # Base score calculation logic
@@ -252,9 +252,7 @@ class SecurityScanner:
         # Normalize and weight scores
         normalized_score = (
             (port_score * weights['port_exposure']) +
-            (headers_score * weights['security_headers']) +
-            # Add more score components
-            10
+            (headers_score * weights['security_headers'])    
         )
         
         return min(max(normalized_score, 0), 10)
@@ -293,7 +291,7 @@ def generate_pdf_report(scanner):
 
     # Port Scan Results
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, y, "🌐 Port Scan Results")
+    c.drawString(50, y, "Port Scan Results")
     y -= 20
     for port in scanner.scan_results.get('port_scan', {}).get('critical_ports_exposed', []):
         c.setFont("Helvetica", 10)
@@ -302,7 +300,7 @@ def generate_pdf_report(scanner):
 
     # Security Headers
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, y, "🔒 Security Headers")
+    c.drawString(50, y, "Security Headers")
     y -= 20
     for header, value in scanner.scan_results.get('security_headers', {}).items():
         c.setFont("Helvetica", 10)
@@ -311,7 +309,7 @@ def generate_pdf_report(scanner):
 
     # Domain Metadata
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, y, "🌍 Domain Metadata")
+    c.drawString(50, y, "Domain Metadata")
     y -= 20
     domain_info = scanner.scan_results.get('domain_metadata', {})
     for key, value in domain_info.items():
@@ -321,7 +319,7 @@ def generate_pdf_report(scanner):
 
     # Security Score
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, y, "📊 Security Score")
+    c.drawString(50, y, "Security Score")
     y -= 20
     c.setFont("Helvetica", 10)
     c.drawString(70, y, f"Score: {scanner.calculate_security_score()}/10")
@@ -329,7 +327,7 @@ def generate_pdf_report(scanner):
 
     # Remediation Steps
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, y, "🔧 Recommended Fixes")
+    c.drawString(50, y, "Recommended Fixes")
     y -= 20
     for step in scanner.generate_remediation_steps():
         c.setFont("Helvetica", 10)
@@ -364,25 +362,25 @@ def run_security_scan():
         with st.spinner("Running comprehensive security scan..."):
             # Port Scan
             port_results = scanner.run_port_scan()
-            st.subheader("🌐 Port Scan Results")
+            st.subheader("Port Scan Results")
             for port in port_results:
                 st.warning(f"Exposed Port: {port}")
             
             # Security Headers
             headers = scanner.check_security_headers()
-            st.subheader("🔒 Security Headers")
+            st.subheader("Security Headers")
             for header, value in headers.items():
                 st.info(f"{header}: {value}")
             
             # Domain Metadata
             domain_info = scanner.check_domain_metadata()
-            st.subheader("🌍 Domain Metadata")
+            st.subheader("Domain Metadata")
             st.write(json.dumps(domain_info, default=str))
             
             # Email Leak Check
             #if email:
                 #leaks = scanner.check_email_leaks(email)
-                #st.subheader("📧 Email Breach Check")
+                #st.subheader("Email Breach Check")
                 #if leaks:
                     #for leak in leaks:
                         #st.error(f"Email found in {leak} breach")
@@ -391,12 +389,19 @@ def run_security_scan():
             
             # Calculate Security Score
             security_score = scanner.calculate_security_score()
-            st.subheader("📊 Security Score")
+            st.subheader("Security Score")
             st.metric("Comprehensive Security Rating", f"{security_score}/10")
-            
+            if security_score<4:
+                st.subheader("Your website is not reliable")
+            elif (security_score<=8)and(security_score>=5):
+                st.subheader("website reliability needs improvement")
+            else:
+                st.subheader("website is mostly reliable")
+                
+                
             # Remediation Steps
             remediation_steps = scanner.generate_remediation_steps()
-            st.subheader("🔧 Recommended Fixes")
+            st.subheader("Recommended Fixes")
             for step in remediation_steps:
                 st.info(step)
 
@@ -404,16 +409,16 @@ def run_security_scan():
             pdf_filename = generate_pdf_report(scanner)
             with open(pdf_filename, "rb") as pdf_file:
                 st.download_button(
-                    label="📄 Download Final Report",
+                    label="Download Final Report",
                     data=pdf_file,
                     file_name="Security_Scan_Report.pdf",
                     mime="application/pdf"
                 )
             # Detailed Report Toggle
             
-            if st.button("Generate Detailed Remediation Roadmap"):
+            #if st.button("Generate Detailed Remediation Roadmap"):
                 # Placeholder for more detailed, personalized remediation guide
-                st.switch_page("pages/5_Roadmap.py")
+                #st.switch_page("pages/5_Roadmap.py")
             if st.button("back to dashboard"):
                 # Placeholder for more detailed, personalized remediation guide
                 st.switch_page("pages/1_Dashboard.py")

@@ -5,7 +5,7 @@ import plotly.express as px
 
 # Set page title and layout
 st.set_page_config(page_title="Scan History & Insights", layout="wide")
-st.title("🔍 Security Scan Insights Dashboard")
+st.title(" Security Scan Insights Dashboard")
 
 # Custom CSS for rounded blue graph panels
 st.markdown("""
@@ -29,6 +29,8 @@ def load_data():
     port_scans = pd.read_sql_query("SELECT * FROM port_scans", conn)
     vulnerabilities = pd.read_sql_query("SELECT * FROM vulnerability_scans", conn)
     domain_metadata = pd.read_sql_query("SELECT * FROM domain_metadata", conn)
+    domain_metadata['timestamp'] = pd.to_datetime(domain_metadata['timestamp'], errors='coerce')
+
     conn.close()
     return port_scans, vulnerabilities, domain_metadata
 

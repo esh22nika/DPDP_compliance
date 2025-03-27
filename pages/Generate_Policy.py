@@ -44,20 +44,18 @@ def generate_ai_policy(inputs):
     - Markdown sections
     - Include grievance officer details
     - 500 words maximum
+    - make changes if new regulatory changes made to DPDP
     """
 
     response = model.generate_content(prompt)
     return response.text
 
 def generate_simple_dpdp_policy():
-    with st.expander("🛡️ Create Your Free Privacy Policy (DPDP Act Compliant)", expanded=True):
-        st.markdown("""
-        **Simple Privacy Policy Maker for Indian Businesses**  
-        *Takes 5 minutes • No legal jargon • Free to use*
-        """)
+    with st.expander(" Create Your Free Privacy Policy (DPDP Act Compliant)", expanded=True):
+        
         
         # Business Basics
-        st.subheader("🔹 About Your Business")
+        st.subheader(" About Your Business")
         business_name = st.text_input("Your Business Name*")
         website_url = st.text_input("Your Website Address*", value=url)
         contact_email = st.text_input("Contact Email for Privacy Questions*")
@@ -66,7 +64,7 @@ def generate_simple_dpdp_policy():
         st.markdown("---")
         
         # Data Collection
-        st.subheader("🔹 What Information Do You Collect?")
+        st.subheader(" What Information Do You Collect?")
         st.markdown("**Tick all that apply:**")
         
         col1, col2 = st.columns(2)
@@ -85,20 +83,20 @@ def generate_simple_dpdp_policy():
         st.markdown("---")
         
         # DPDP-Specific Enhancements
-        st.subheader("🔹 Data Retention Rules")
+        st.subheader("Data Retention Rules")
         retention_period = st.number_input(
             "Maximum retention period (months)*",
             min_value=1, value=24
         )
 
-        st.subheader("🔹 Third-Party Data Sharing")
+        st.subheader("Third-Party Data Sharing")
         third_parties = st.multiselect(
             "Select partners:",
             ["Payment Processors", "Cloud Providers", "Marketing Agencies"]
         )
         data_processing_agreements = st.checkbox("We have valid Data Processing Agreements", True)
 
-        st.subheader("🔹 Children's Data (Under 18)")
+        st.subheader(" Children's Data (Under 18)")
         child_data = st.checkbox("Collect minor's data?")
         age_verification = None
         if child_data:
@@ -107,48 +105,48 @@ def generate_simple_dpdp_policy():
                 ["Parental Consent via OTP", "Age Gate (13+)"]
             )
 
-        st.subheader("🔹 Data Storage Location")
+        st.subheader("Data Storage Location")
         data_localization = st.radio(
             "Primary data storage:",
             ["Only India", "India + International", "Only International"]
         )
 
-        st.subheader("🔹 Grievance Redressal")
+        st.subheader("Grievance Redressal")
         dpo_name = st.text_input("Grievance Officer Name*")
         dpo_email = st.text_input("Grievance Officer Email*")
 
-        st.subheader("🔹 Compliance Measures")
+        st.subheader("Compliance Measures")
         compliance_audits = st.checkbox("Annual DPDP audits", True)
         audit_trails = st.checkbox("Maintain audit trails", True)
         incident_plan = st.checkbox("Data breach response plan", True)
 
-        st.subheader("🔹 Data Usage Purposes")
+        st.subheader("Data Usage Purposes")
         data_purposes = st.multiselect(
             "Select purposes:",
             ["Service Delivery", "Legal Compliance", "Fraud Prevention"],
             default=["Service Delivery"]
         )
 
-        st.subheader("🔹 Consent Management")
+        st.subheader("Consent Management")
         consent_method = st.radio(
             "Permission method:",
             ["Checkbox Agreement", "Written Form", "Implied Consent"]
         )
         has_withdraw = st.checkbox("Allow consent withdrawal", True)
         
-        st.subheader("🔹 Customer Rights")
+        st.subheader(" Customer Rights")
         right_access = st.checkbox("Access Data", True)
         right_correct = st.checkbox("Correct Data", True)
         right_delete = st.checkbox("Delete Data", True)
         right_complain = st.checkbox("File Complaints", True)
 
-        st.subheader("🔹 Security Measures")
+        st.subheader(" Security Measures")
         secure_passwords = st.checkbox("Password Protection", True)
         secure_encrypt = st.checkbox("Encryption", True)
         secure_staff = st.checkbox("Staff Training")
         secure_backup = st.checkbox("Regular Backups")
 
-        if st.button("✨ Generate My Privacy Policy", type="primary"):
+        if st.button("Generate My Privacy Policy", type="primary"):
             if not all([business_name, website_url, contact_email]):
                 st.warning("Please fill all required fields")
                 return
