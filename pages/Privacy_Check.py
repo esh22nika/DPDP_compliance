@@ -226,6 +226,25 @@ def get_suggested_text(clause):
     }
     
     return suggestions.get(clause, "No suggestion available for this clause.")
+def generate_new_policy(policy_text, compliance_results, recommendations):
+    """Generate a new privacy policy text incorporating recommendations"""
+    new_policy = policy_text
+    
+    # Add missing required clauses
+    for result in compliance_results:
+        if result['Status'] == 'Missing':
+            suggested_text = get_suggested_text(result['Clause'])
+            new_policy += f"\n\n=== {result['Clause']} ===\n{suggested_text}"
+    
+    # Add recommended clauses
+    for rec in recommendations:
+        if "Consider adding a" in rec:
+            clause = rec.replace("Consider adding a ", "").replace(" section to your policy", "")
+            suggested_text = get_suggested_text(clause)
+            if suggested_text != "No suggestion available for this clause.":
+                new_policy += f"\n\n=== {clause} ===\n{suggested_text}"
+    
+    return new_policy
 
 def main(url):
     st.title(" DPDP Privacy Policy Compliance Checker")
@@ -374,7 +393,24 @@ def main(url):
                     )
                     
                     st.write("---")
-                    st.write("Need help improving your privacy policy?")
-                    if st.button("Get Professional Assistance"):
-                        st.info("Contact our privacy experts at privacy@example.com for personalized assistance.")
+                    st.write("Generate updated privacy policy with recommendations:")
+                    
+                    # Generate the new policy text
+                    new_policy_text = generate_new_policy(policy_text, results, recommendations)
+                    
+                    # PDF download button
+                    pdf_button = st.download_button(
+                        label="Download Updated Policy (PDF)",
+                        data=new_policy_text,
+                        file_name=f"updated_privacy_policy_{time.strftime('%Y%m%d')}.pdf",
+                        mime="application/pdf"
+                    )
+                    
+                    # TXT download button
+                    txt_button = st.download_button(
+                        label="Download Updated Policy (TXT)",
+                        data=new_policy_text,
+                        file_name=f"updated_privacy_policy_{time.strftime('%Y%m%d')}.txt",
+                        mime="text/plain"
+                    )
 

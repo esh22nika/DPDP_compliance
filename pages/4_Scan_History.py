@@ -59,7 +59,7 @@ if selected_domain != "All":
     vulnerabilities = vulnerabilities[vulnerabilities['domain'] == selected_domain]
     domain_metadata = domain_metadata[domain_metadata['domain'] == selected_domain]
 
-# 📊 **Graphs**
+# **Graphs**
 security_scores = domain_metadata[['domain', 'timestamp', 'ssl_expiry']].groupby(['timestamp']).count().reset_index()
 fig1 = px.line(security_scores, x='timestamp', y='ssl_expiry', markers=True, title="Security Score Trends")
 
