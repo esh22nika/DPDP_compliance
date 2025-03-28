@@ -7,11 +7,14 @@ import time
 import pandas as pd
 from io import BytesIO
 import plotly.graph_objects as go
+import google.generativeai as genai
 
 st.set_page_config(
     page_title="DPDP Privacy Policy Compliance Checker",
     layout="wide"
 )
+genai.configure(api_key="AIzaSyDZjor43yqVq4bWRThkg-EraIh6vmlCw6s")  # Use your actual API key
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 REQUIRED_CLAUSES = {
     "Purpose of Data Collection": r"(collect|gather|obtain|use|process).*?(data|information|personal details).*?(?:for|to).*?(improve|provide|enhance|personalize|deliver|optimize).*?(service|product|experience|content)",
@@ -46,7 +49,33 @@ RECOMMENDED_CLAUSES = {
     
     "Legitimate Interest": r"(legitimate|lawful|legal).*?(interest|basis|ground).*?(processing|collecting|using)"
 }
-
+def evaluate_clause_necessity(url, clause_name, current_status):
+    """Use Gemini to determine if clause is actually needed for this website"""
+    prompt = f"""
+    Analyze whether a {clause_name} clause is genuinely required in the privacy policy 
+    for {url} based on its likely business model and data practices. 
+    
+    Current status: {'Present' if current_status else 'Missing'}
+    
+    Consider:
+    - Type of website (e.g., informational, e-commerce, social media)
+    - Data collection practices
+    - Applicable regulations
+    - Industry standards
+    
+    Respond ONLY with one of these options:
+    - "Essential" (if legally/morally required)
+    - "Recommended" (if beneficial but not required)  
+    - "Optional" (if not particularly relevant)
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        st.warning(f"Could not evaluate clause necessity: {e}")
+        return "Recommended"  # Fallback value
+    
 def find_privacy_policy_url(base_url):
     """Find the privacy policy URL by checking common paths or looking for links"""
     common_paths = [
@@ -247,7 +276,7 @@ def generate_new_policy(policy_text, compliance_results, recommendations):
     return new_policy
 
 def main(url):
-    st.title(" DPDP Privacy Policy Compliance Checker")
+    st.title("DPDP Privacy Policy Compliance Checker")
     
     with st.expander("About this tool", expanded=False):
         st.markdown("""
@@ -258,13 +287,9 @@ def main(url):
         2. We'll locate your privacy policy
         3. Our tool will analyze the policy against 10 required and 5 recommended clauses
         4. Get a detailed report of compliance status and recommendations
-       
         """)
     
     col1, col2 = st.columns([3, 1])
-    
-    #with col1:
-     #   url = st.text_input("Enter your website URL:", placeholder="https://example.com")
     
     with col2:
         st.write("")
@@ -288,11 +313,15 @@ def main(url):
             # Find privacy policy URL
             policy_url, response = find_privacy_policy_url(url)
             
+            if not policy_url:
+                st.error("Could not locate privacy policy on this website")
+                return
+                
             # Get the privacy policy content
             with st.spinner("Analyzing content..."):
                 policy_text = get_policy_content(response).lower()
                 
-                # Check required clauses
+                # Check clauses
                 results = []
                 missing_clauses = []
                 passed_checks = 0
@@ -314,33 +343,61 @@ def main(url):
                         "Status": status,
                         "Evidence": evidence
                     })
-                
+
                 # Check recommended clauses
                 recommendations = []
                 for clause, regex in RECOMMENDED_CLAUSES.items():
                     matches = check_clause(policy_text, regex)
                     if not matches:
                         recommendations.append(f"Consider adding a {clause} section to your policy")
+
+                # Calculate initial compliance score
+                initial_score = round((passed_checks / total_checks) * 10, 1) if total_checks > 0 else 0
                 
-                # Compliance score calculation (out of 10)
-                compliance_score = round((passed_checks / total_checks) * 10, 1)
+                # Get Gemini's assessment if most clauses are missing (adjust threshold as needed)
+                if passed_checks < total_checks * 0.3:  # If less than 30% of clauses found
+                    with st.spinner("Getting expert assessment..."):
+                        try:
+                            assessment_prompt = f"""
+                            Based on general knowledge about {url}, provide:
+                            1. A 1-10 privacy compliance score considering its likely practices
+                            2. A brief (1 sentence) justification
+                            3. Whether it needs a full privacy policy (Yes/No)
+                            
+                            Example response format:
+                            7|Wikipedia is known for minimal data collection|No
+                            """
+                            
+                            response = model.generate_content(assessment_prompt)
+                            gemini_score, justification, needs_policy = response.text.split("|")
+                            gemini_score = float(gemini_score.strip())
+                            final_score = max(initial_score, gemini_score)  # Take the higher score
+                            
+                            st.info(f"🔍 Expert Assessment: {justification.strip()}")
+                            if needs_policy.strip().lower() == "no":
+                                recommendations.insert(0, "This site may not need a comprehensive privacy policy based on its operations")
+                        except Exception as e:
+                            st.warning(f"Could not get expert assessment: {e}")
+                            final_score = initial_score
+                else:
+                    final_score = initial_score
                 
                 # Display results
-                st.success(f"✅ Privacy Policy found at: {policy_url}")
+                st.success(f" Privacy Policy found at: {policy_url}")
                 
                 # Basic metrics
                 metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
                 with metrics_col1:
-                    st.metric("Compliance Score", f"{compliance_score}/10")
+                    st.metric("Final Compliance Score", f"{final_score}/10")
                 with metrics_col2:
-                    st.metric("Required Clauses", f"{passed_checks}/{total_checks}")
+                    st.metric("Clauses Found", f"{passed_checks}/{total_checks}")
                 with metrics_col3:
-                    st.metric("Additional Recommendations", len(recommendations))
+                    st.metric("Recommendations", len(recommendations))
                 
-                # Visual representation of compliance
+                # Visual representation
                 fig = go.Figure(go.Indicator(
                     mode = "gauge+number",
-                    value = compliance_score,
+                    value = final_score,
                     domain = {'x': [0, 1], 'y': [0, 1]},
                     title = {'text': "Compliance Score"},
                     gauge = {
@@ -358,59 +415,35 @@ def main(url):
                         }
                     }
                 ))
-                
                 st.plotly_chart(fig)
                 
                 # Detailed results
-                tabs = st.tabs(["Required Clauses", "Recommendations", "Export"])
+                tabs = st.tabs(["Clause Analysis", "Recommendations", "Export"])
                 
                 with tabs[0]:
                     for result in results:
-                        with st.expander(f"{'' if result['Status'] == 'Present' else '❌'} {result['Clause']}"):
+                        with st.expander(f"{result['Clause']} ({result['Status']})"):
                             st.write(f"**Status:** {result['Status']}")
                             if result['Status'] == 'Present':
                                 st.success(f"Evidence: {result['Evidence']}")
                             else:
-                                st.error("No matching clause found in your privacy policy.")
+                                st.error("No matching clause found")
                                 st.write("**Suggested text:**")
                                 st.markdown(get_suggested_text(result['Clause']))
                 
                 with tabs[1]:
                     if recommendations:
-                        for recommendation in recommendations:
-                            st.info(recommendation)
+                        for rec in recommendations:
+                            st.info(rec)
                     else:
-                        st.success("No additional recommendations. Your policy covers all suggested clauses!")
+                        st.success("No additional recommendations")
                 
                 with tabs[2]:
                     st.write("Export your compliance report:")
-                    report_bytes = generate_report(results, recommendations, policy_url, compliance_score)
+                    report_bytes = generate_report(results, recommendations, policy_url, final_score)
                     st.download_button(
-                        label="Download Compliance Report (Excel)",
+                        label="Download Report (Excel)",
                         data=report_bytes,
-                        file_name=f"privacy_compliance_report_{time.strftime('%Y%m%d')}.xlsx",
+                        file_name=f"privacy_report_{time.strftime('%Y%m%d')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
-                    
-                    st.write("---")
-                    st.write("Generate updated privacy policy with recommendations:")
-                    
-                    # Generate the new policy text
-                    new_policy_text = generate_new_policy(policy_text, results, recommendations)
-                    
-                    # PDF download button
-                    pdf_button = st.download_button(
-                        label="Download Updated Policy (PDF)",
-                        data=new_policy_text,
-                        file_name=f"updated_privacy_policy_{time.strftime('%Y%m%d')}.pdf",
-                        mime="application/pdf"
-                    )
-                    
-                    # TXT download button
-                    txt_button = st.download_button(
-                        label="Download Updated Policy (TXT)",
-                        data=new_policy_text,
-                        file_name=f"updated_privacy_policy_{time.strftime('%Y%m%d')}.txt",
-                        mime="text/plain"
-                    )
-
