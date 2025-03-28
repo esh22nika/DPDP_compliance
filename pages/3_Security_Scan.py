@@ -63,6 +63,14 @@ class SecurityScanner:
             timestamp DATETIME
         )
         ''')
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS header_scans (
+            scan_id INTEGER PRIMARY KEY,
+            domain TEXT NOT NULL,
+            timestamp DATETIME NOT NULL
+        )
+        ''')
+
         
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS vulnerability_scans (
@@ -92,65 +100,138 @@ class SecurityScanner:
         conn.close()
     
     def run_port_scan(self):
-        """Perform port scan using Shodan API"""
-        try:
-            shodan_api = shodan.Shodan(SHODAN_API_KEY)
-            results = shodan_api.host(self.ip)
-            
-            open_ports = [
-                f"{port}"
-                for port in results.get('ports', [])
-            ]
-            
-            # Check for critical ports
-            critical_ports = {
-                22: 'SSH',
-                3306: 'MySQL',
-                3389: 'RDP',
-                443: 'HTTPS',
-                80: 'HTTP'
-            }
-            
-            exposed_critical_ports = [
-                f"{port} ({critical_ports[port]})" 
-                for port in critical_ports.keys() 
-                if port in results.get('ports', [])
-            ]
-            
-            self.scan_results['port_scan'] = {
-                'open_ports': open_ports,
-                'critical_ports_exposed': exposed_critical_ports
-            }
-            
-            # Store in database
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO port_scans 
-                (domain, ip, open_ports, timestamp) 
-                VALUES (?, ?, ?, ?)
-            ''', (
-                self.domain, 
-                self.ip, 
-                json.dumps(open_ports), 
-                datetime.now()
-            ))
-            conn.commit()
-            conn.close()
-            
-            return exposed_critical_ports
-        
-        except shodan.APIError as e:
-            st.error(f"Shodan API Error: {e}")
-            return []
+        """Perform port scan with robust error handling"""
+        # First try Shodan if API key exists
+        if SHODAN_API_KEY:
+            try:
+                shodan_api = shodan.Shodan(SHODAN_API_KEY)
+                try:
+                    results = shodan_api.host(self.ip)
+                    
+                    open_ports = [str(port) for port in results.get('ports', [])]
+                    critical_ports = {22: 'SSH', 3306: 'MySQL', 3389: 'RDP'}
+                    exposed_critical = [
+                        f"{port} ({critical_ports[port]})" 
+                        for port in critical_ports 
+                        if port in results.get('ports', [])
+                    ]
+
+                    # Store results in database
+                    try:
+                        conn = sqlite3.connect(self.db_path)
+                        cursor = conn.cursor()
+                        cursor.execute('''
+                            INSERT INTO port_scans 
+                            (domain, ip, open_ports, timestamp) 
+                            VALUES (?, ?, ?, ?)
+                        ''', (
+                            self.domain, 
+                            self.ip, 
+                            json.dumps(open_ports), 
+                            datetime.now()
+                        ))
+                        conn.commit()
+                    except sqlite3.Error as e:
+                        st.warning(f"Database error: {e}")
+                    finally:
+                        conn.close()
+
+                    return {
+                        'open_ports': open_ports,
+                        'critical_ports_exposed': exposed_critical,
+                        'scan_type': 'shodan'
+                    }
+
+                except shodan.APIError as e:
+                    st.warning(f"Shodan API error: {e}")
+                except Exception as e:
+                    st.warning(f"Shodan processing error: {e}")
+
+            except Exception as e:
+                st.warning(f"Shodan initialization failed: {e}")
+
+        # Fallback to basic TCP scan
+        return self._basic_tcp_port_scan()
     
+    def _basic_tcp_port_scan(self):
+            """Check common ports without Shodan"""
+            common_ports = {
+                80: 'HTTP',
+                443: 'HTTPS',
+                22: 'SSH',
+                3389: 'RDP',
+                3306: 'MySQL'
+            }
+            
+            open_ports = []
+            critical_exposed = []
+            
+            for port, service in common_ports.items():
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        s.settimeout(1.5)
+                        if s.connect_ex((self.ip, port)) == 0:
+                            open_ports.append(f"{port} ({service})")
+                            if port in [22, 3389, 3306]:  # Critical ports
+                                critical_exposed.append(f"{port} ({service})")
+                except:
+                    continue
+            
+            return {
+                'open_ports': open_ports,
+                'critical_ports_exposed': critical_exposed,
+                'scan_type': 'basic'  # Mark as limited scan
+            }
+        
+    def get_all_security_headers_to_check(self):
+        """Returns categorized headers with metadata"""
+        return {
+            'essential': [
+                ('Content-Security-Policy', 3.0),
+                ('Strict-Transport-Security', 3.0),
+                ('X-Frame-Options', 2.5),
+                ('X-Content-Type-Options', 2.0),
+                ('Referrer-Policy', 2.0),
+                ('Permissions-Policy', 2.0),
+                ('Cross-Origin-Opener-Policy', 1.5),
+                ('Cross-Origin-Embedder-Policy', 1.5)
+            ],
+            'recommended': [
+                ('Cache-Control', 1.0),
+                ('Clear-Site-Data', 0.5),
+                ('Expect-CT', 0.5)
+            ],
+            'observational': [
+                ('X-XSS-Protection', 0.3),
+                ('Feature-Policy', 0.2),
+                ('Public-Key-Pins', 0.1)
+            ]
+        }
+    
+    def check_all_headers(self):
+        headers = requests.get(self.url, timeout=5).headers
+        all_headers = self.get_all_security_headers_to_check()
+        
+        results = {}
+        for category, headers_list in all_headers.items():
+            results[category] = {
+                header: {
+                    'present': header in headers,
+                    'value': headers.get(header),
+                    'weight': weight
+                }
+                for header, weight in headers_list
+            }
+    
+        return results
     def check_security_headers(self):
-        """Check security headers of the website"""
+        """Check security headers with proper DB connection handling"""
+        conn = None
         try:
+            # First get the headers from the website
             response = requests.get(self.url, timeout=5)
             headers = response.headers
             
-            # Check specific security headers
             security_headers = {
                 'Content-Security-Policy': headers.get('Content-Security-Policy', 'Not Set'),
                 'Strict-Transport-Security': headers.get('Strict-Transport-Security', 'Not Set'),
@@ -159,11 +240,17 @@ class SecurityScanner:
                 'Permissions-Policy': headers.get('Permissions-Policy', 'Not Set')
             }
             
-            self.scan_results['security_headers'] = security_headers
-            
             # Store in database
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+            
+            # Insert into header_scans table
+            cursor.execute('''
+                INSERT INTO header_scans (domain, timestamp)
+                VALUES (?, ?)
+            ''', (self.domain, datetime.now()))
+            
+            # Insert into security_headers table
             cursor.execute('''
                 INSERT INTO security_headers 
                 (domain, csp, hsts, x_frame, referrer_policy, timestamp) 
@@ -176,14 +263,22 @@ class SecurityScanner:
                 security_headers['Referrer-Policy'],
                 datetime.now()
             ))
-            conn.commit()
-            conn.close()
             
+            conn.commit()
             return security_headers
-        
+            
         except requests.RequestException:
             st.error("Could not retrieve security headers")
             return {}
+        except sqlite3.Error as e:
+            st.error(f"Database error: {e}")
+            return {}
+        except Exception as e:
+            st.error(f"Unexpected error: {e}")
+            return {}
+        finally:
+            if conn:
+                conn.close()
     
     def check_domain_metadata(self):
         """Retrieve domain metadata and risk assessment"""
@@ -233,30 +328,140 @@ class SecurityScanner:
             st.error(f"Domain metadata retrieval error: {e}")
             return {}
 
-    
+    def calculate_header_score(self, header_results):
+        total_score = 0
+        max_possible = 0
+        
+        for category in header_results.values():
+            for header_data in category.values():
+                if header_data['present']:
+                    total_score += header_data['weight']
+                max_possible += header_data['weight']
+        
+        return (total_score / max_possible) * 100 if max_possible > 0 else 0
     
     def calculate_security_score(self):
-        """Calculate comprehensive security score"""
+        """Calculate comprehensive security score with robust error handling"""
         # Weights for different security aspects
         weights = {
-            'port_exposure': 0.3,      # Penalize critical open ports, but common web ports (80, 443) shouldn't be major issues
-            'security_headers': 0.3,  # Reward good headers, but missing headers shouldn't tank the score completely
-            'domain_metadata': 0.2,    # Increase importance for SSL expiry and domain trustworthiness
-            'sensitive_data': 0.4 
+            'port_exposure': 0.3,
+            'security_headers': 0.4,
+            'domain_metadata': 0.2,
+            'sensitive_data': 0.1 
         }
         
-        # Base score calculation logic
-        port_score = 10 - (len(self.scan_results.get('port_scan', {}).get('critical_ports_exposed', [])) * 2)
-        headers_score = sum([1 for header in self.scan_results.get('security_headers', {}).values() if header != 'Not Set']) * 2
+        # Track available components and initialize scores
+        available_components = {
+            'port_exposure': False,
+            'security_headers': False,
+            'domain_metadata': False,
+            'sensitive_data': False
+        }
         
-        # Normalize and weight scores
-        normalized_score = (
-            (port_score * weights['port_exposure']) +
-            (headers_score * weights['security_headers'])    
+        # Initialize all scores with default values
+        port_score = 5  # Neutral default
+        headers_score = 5
+        domain_score = 6  # Slightly positive default
+        data_score = 5  # Neutral default
+        
+        # 1. Port Score Calculation
+        port_results = self.scan_results.get('port_scan', {})
+        if port_results:
+            available_components['port_exposure'] = True
+            critical_ports = len(port_results.get('critical_ports_exposed', []))  # Initialize here
+            
+            if port_results.get('scan_type') == 'shodan':
+                port_score = max(0, 10 - critical_ports * 2)
+            elif port_results.get('scan_type') == 'basic':
+                port_score = max(0, 10 - critical_ports * 1.5)
+            else:
+                port_score = max(0, 8 - critical_ports)
+
+        # 2. Headers Score Calculation
+        try:
+            header_results = self.check_all_headers()
+            if header_results:
+                available_components['security_headers'] = True
+                headers_score = self.calculate_header_score(header_results) / 10
+        except Exception as e:
+            st.warning(f"Header scoring error: {e}")
+
+        # 3. Domain Score Calculation
+        domain_info = self.scan_results.get('domain_metadata', {})
+        if domain_info:
+            try:
+                available_components['domain_metadata'] = True
+                domain_score = self._calculate_domain_score(domain_info)
+            except Exception as e:
+                st.warning(f"Domain scoring error: {e}")
+
+        # 4. Sensitive Data Score
+        if hasattr(self, '_evaluate_sensitive_data'):
+            try:
+                data_score = self._evaluate_sensitive_data()
+                available_components['sensitive_data'] = True
+            except Exception as e:
+                st.warning(f"Sensitive data scoring error: {e}")
+
+        # Adjust weights based on available data
+        total_available = sum(1 for v in available_components.values() if v)
+        if total_available == 0:
+            return 5  # Can't determine score
+        
+        # Normalize weights
+        adjusted_weights = {
+            k: (weights[k] if available_components[k] else 0)
+            for k in weights
+        }
+        weight_sum = sum(adjusted_weights.values())
+        
+        if weight_sum == 0:
+            return 5  # No valid components
+        
+        normalized_weights = {
+            k: v/weight_sum 
+            for k,v in adjusted_weights.items()
+        }
+
+        # Calculate weighted score
+        weighted_score = (
+            (port_score * normalized_weights.get('port_exposure', 0)) +
+            (headers_score * normalized_weights.get('security_headers', 0)) +
+            (domain_score * normalized_weights.get('domain_metadata', 0)) +
+            (data_score * normalized_weights.get('sensitive_data', 0))
         )
-        
-        return min(max(normalized_score, 0), 10)
+        temp=max(round(weighted_score, 1),1)
+        return min(temp, 10)  # Ensure score is between 0-10
     
+    def _calculate_domain_score(self, domain_info):
+        """Robust domain scoring with fallbacks"""
+        score = 6  # Base neutral score
+        
+        # SSL Expiry (if available)
+        if 'ssl_expiry' in domain_info:
+            try:
+                days_remaining = (domain_info['ssl_expiry'] - datetime.now()).days
+                if days_remaining > 30:
+                    score += 2
+                elif days_remaining > 7:
+                    pass  # Neutral
+                else:
+                    score -= 3
+            except:
+                pass
+        
+        # Domain Age (if available)
+        if 'domain_age' in domain_info:
+            try:
+                if domain_info['domain_age'] > 365:  # Older than 1 year
+                    score += 1
+                elif domain_info['domain_age'] < 30:  # Very new
+                    score -= 1
+            except:
+                pass
+        
+        return min(max(score, 1), 10)
+
     def generate_remediation_steps(self):
         """Generate remediation steps based on vulnerabilities"""
         steps = []
@@ -385,16 +590,22 @@ def display_compliance_progress(percentage):
     </style>
     """, unsafe_allow_html=True)
 
-def calculate_compliance_percentage(security_score):
-    """Calculate DPDP compliance percentage based on security score"""
-    # Simple linear mapping - adjust as needed
-    base_percentage = security_score * 8  # 0-10 score becomes 0-80%
+def calculate_compliance_percentage(security_score,port_results):
+    base_percentage = security_score * 8  # 0-10 to 0-80%
     
-    # Add bonus points for specific compliance indicators
-    bonus = 0
+    # Handle different scan types
+    if port_results.get('scan_type') == 'shodan':
+        # Full penalty for critical ports in full scan
+        base_percentage -= len(port_results.get('critical_ports_exposed', [])) * 5
+    elif port_results.get('scan_type') == 'basic':
+        # Reduced penalty for basic scan
+        base_percentage -= len(port_results.get('critical_ports_exposed', [])) * 3
+    else:
+        # No port data - conservative penalty
+        base_percentage *= 0.9  # 10% reduction
+        st.warning("Port scan incomplete - compliance score adjusted conservatively")
     
-    # Max out at 95% since 100% is unrealistic
-    return min(base_percentage + bonus, 95)
+    return min(max(base_percentage, 0), 95)
 
 def run_security_scan():
     st.set_page_config(page_title="Run security scan")
@@ -421,6 +632,20 @@ def run_security_scan():
             # Port Scan
             port_results = scanner.run_port_scan()
             st.subheader("Port Scan Results")
+            if port_results.get('scan_type') == 'basic':
+                st.warning("Used basic port scanner (Shodan unavailable)")
+
+            if port_results.get('open_ports'):
+                st.write("**All Open Ports:**")
+                for port in port_results['open_ports']:
+                    st.code(port)
+
+            if port_results.get('critical_ports_exposed'):
+                st.error("**Critical Ports Exposed:**")
+                for port in port_results['critical_ports_exposed']:
+                    st.error(port)
+            else:
+                st.success("No critical ports exposed")
             for port in port_results:
                 st.warning(f"Exposed Port: {port}")
             
@@ -451,7 +676,7 @@ def run_security_scan():
             st.metric("Comprehensive Security Rating", f"{security_score}/10")
 
            
-            compliance_percentage = calculate_compliance_percentage(security_score)
+            compliance_percentage = calculate_compliance_percentage(security_score=security_score,port_results=port_results)
             st.subheader("DPDP Compliance Assessment")
             
             # Display progress bar
