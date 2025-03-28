@@ -1,62 +1,102 @@
 import streamlit as st
 import requests
-from bs4 import BeautifulSoup
+from PyPDF2 import PdfReader
+from io import BytesIO
 import os
 import difflib
 from datetime import datetime
 from plyer import notification
-from PIL import Image
 
-# DPDP Compliance Website URL
-DPDP_URL = "https://www.dpdpa.in/"
-TEXT_FILE = "dpdp_data.txt"
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+# PDF URL from MeitY
+PDF_URL = "https://www.meity.gov.in/static/uploads/2024/06/2bf1f0e9f04e6fb4f8fef35e82c42aa5.pdf"
+TEXT_FILE = "dpdp_act_2023.txt"
 
-# --- Function Definitions ---
 def fetch_dpdp_data():
-    """Scrapes text from the DPDP website."""
-    response = requests.get(DPDP_URL, headers=HEADERS)
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.text, "html.parser")
-        return soup.get_text(separator="\n", strip=True)
-    return None
+    """Fetches the DPDP Act text from the MeitY PDF."""
+    try:
+        # Download PDF
+        response = requests.get(PDF_URL, timeout=10)
+        response.raise_for_status()
+        
+        # Extract text
+        pdf_file = BytesIO(response.content)
+        reader = PdfReader(pdf_file)
+        text = ""
+        
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+        
+        # Clean up text
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return "\n".join(lines)
+    
+    except Exception as e:
+        st.error(f"Error fetching PDF: {str(e)}")
+        return None
 
 def save_text_to_file(text, filename):
     """Saves text data to a file."""
-    with open(filename, "w", encoding="utf-8") as file:
-        file.write(text)
+    try:
+        with open(filename, "w", encoding="utf-8") as file:
+            file.write(text)
+        return True
+    except IOError as e:
+        st.error(f"Error saving file: {str(e)}")
+        return False
 
 def load_previous_text(filename):
     """Loads previously stored text data."""
-    return open(filename, "r", encoding="utf-8").read() if os.path.exists(filename) else None
+    try:
+        if os.path.exists(filename):
+            with open(filename, "r", encoding="utf-8") as file:
+                return file.read()
+        return None
+    except IOError as e:
+        st.error(f"Error reading file: {str(e)}")
+        return None
 
 def send_notification(title, message):
     """Sends a desktop notification when updates are found."""
-    notification.notify(title=title, message=message, app_name="DPDP Compliance Checker", timeout=10)
+    notification.notify(
+        title=title,
+        message=message,
+        app_name="DPDP Compliance Checker",
+        timeout=10
+    )
 
 def check_for_updates():
-    """Checks if the website content has changed."""
+    """Checks if the DPDP Act text has changed."""
     new_text = fetch_dpdp_data()
     last_checked = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     if new_text:
         old_text = load_previous_text(TEXT_FILE)
+        
         if old_text is None:
-            save_text_to_file(new_text, TEXT_FILE)
-            return "ℹ *First-time check. Data saved.*", last_checked, []
+            if save_text_to_file(new_text, TEXT_FILE):
+                return "ℹ First-time check. DPDP Act content saved.", last_checked, []
+            else:
+                return "⚠ Error saving initial data", last_checked, []
 
-        diff = list(difflib.ndiff(old_text.splitlines(), new_text.splitlines()))
-        changes = [line for line in diff if line.startswith("+ ") or line.startswith("- ")]
-
-        if changes:
-            save_text_to_file(new_text, TEXT_FILE)
-            send_notification("DPDP Update Alert!", "New changes detected on the DPDP website!")
-            return "🔔 *Update Found!* The DPDP website has been updated.", last_checked, changes[:10]
+        if new_text != old_text:
+            diff = list(difflib.ndiff(old_text.splitlines(), new_text.splitlines()))
+            changes = [line for line in diff if line.startswith("+ ") or line.startswith("- ")]
+            
+            if save_text_to_file(new_text, TEXT_FILE):
+                send_notification(
+                    "DPDP Update Alert!", 
+                    "New changes detected in the official DPDP Act PDF!"
+                )
+                return "🔔 Update Found! The DPDP Act has been modified.", last_checked, changes[:20]
     
-    return " No new updates. Everything is up to date.", last_checked, []
+    return "✓ No new updates. The DPDP Act is unchanged.", last_checked, []
 
 # --- Streamlit UI ---
-st.set_page_config(page_title="DPDP Compliance Checker", page_icon="📜", layout="wide")
+st.set_page_config(
+    page_title="DPDP Compliance Checker", 
+    page_icon="📜", 
+    layout="wide"
+)
 
 # --- Custom Styling ---
 st.markdown("""
@@ -101,17 +141,27 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- UI Elements ---
-st.markdown('<div class="title-container"> DPDP Compliance Checker</div>', unsafe_allow_html=True)
-st.write(" This tool *automatically tracks changes* on the DPDP website and alerts you to updates.")
+st.markdown(
+    '<div class="title-container">DPDP Compliance Checker (Official PDF)</div>', 
+    unsafe_allow_html=True
+)
+st.write("This tool tracks changes in the **official DPDP Act PDF** from MeitY.")
 
-if st.button(" Check for Updates", help="Click to check if the DPDP website has changed!", key="check_btn"):
+if st.button("Check for Updates", help="Check for updates in the DPDP Act PDF", key="check_btn"):
     status_message, last_checked, changes = check_for_updates()
     
     # Timestamp
-    st.markdown(f" *Last Checked:* {last_checked}")
+    st.markdown(f"**Last Checked:** {last_checked}")
 
     if "🔔" in status_message:
-        st.markdown(f'<div class="status-box update-box">{status_message}</div>', unsafe_allow_html=True)
-        st.write("###  *New Changes Found:*")
+        st.markdown(
+            f'<div class="status-box update-box">{status_message}</div>', 
+            unsafe_allow_html=True
+        )
+        st.write("### Changes Detected:")
+        st.code("\n".join(changes), language="diff")
     else:
-        st.markdown(f'<div class="status-box no-update-box">{status_message}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="status-box no-update-box">{status_message}</div>', 
+            unsafe_allow_html=True
+        )
