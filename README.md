@@ -1,4 +1,4 @@
-# Hackverse - DPDP Compliance Toolkit
+# DPDP Compliance Toolkit
 
 ## Overview
 
