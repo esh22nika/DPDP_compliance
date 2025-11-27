@@ -2,7 +2,7 @@
 
 ## Overview
 
-Hackverse - DPDP is a centralized application designed to help organizations comply with the Digital Personal Data Protection (DPDP) Act, 2023. The toolkit provides a streamlined process to check, update, and generate privacy policies, ensuring compliance with legal requirements and data protection best practices.
+DPDP is a centralized application designed to help organizations comply with the Digital Personal Data Protection (DPDP) Act, 2023. The toolkit provides a streamlined process to check, update, and generate privacy policies, ensuring compliance with legal requirements and data protection best practices.
 
 ## Features
 
